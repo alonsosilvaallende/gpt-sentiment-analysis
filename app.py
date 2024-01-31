@@ -5,10 +5,8 @@ import numpy as np
 from openai import AsyncOpenAI
 import solara
 import asyncio
-import nest_asyncio
-nest_asyncio.apply()
 
-def get_old_options(positive, negative): return {
+def plot_predicted_sentiment(positive, negative): return {
     "bars": {
         "title": {},
         "tooltip": {
@@ -57,10 +55,9 @@ def get_old_options(positive, negative): return {
     },
 }
 
-def get_options(splitted_phrase, hello):
-    colors = ["#a90000" if hello[i] < 0 else "#0000a9" for i in range(len(hello))]
+def plot_scores_by_words(splitted_phrase, scores):
+    colors = ["#a90000" if scores[i] < 0 else "#0000a9" for i in range(len(scores))]
     return {
-    "bars": {
         "title": {},
         "tooltip": {
             "trigger": 'item', 
@@ -70,13 +67,12 @@ def get_options(splitted_phrase, hello):
         "xAxis": {"type": "value"},
         "emphasis": {"itemStyle": {"borderRadius": 2}},
         "series": [
-    {
-      "data": [{"name": word, "value": val, "itemStyle": {"color": color} } for word, val, color in zip(splitted_phrase, hello, colors)],
-      "type": 'bar',
-    }
+            {
+              "data": [{"name": word, "value": val, "itemStyle": {"color": color} } for word, val, color in zip(splitted_phrase, scores, colors)],
+              "type": 'bar',
+            }
         ],
-    },
-}
+    }
 
 
 def my_function(result):
@@ -89,19 +85,19 @@ def my_function(result):
 input_text = solara.reactive("That was lovely but I hated the outcome")
 @solara.component
 def Page():
-    async def work(text):
+    async def response(input):
         return await client.chat.completions.create(
         model="gpt-4",
         messages=[
             {"role": "system", "content": "You are a helpful sentiment analyzer assistant. Your task is to determine what is the sentiment conveyed by the text."},
-            {"role": "user", "content": f"{text}."}],
+            {"role": "user", "content": f"{input}."}],
         logprobs=True,
         top_logprobs=2,
         logit_bias={36590: 100, 39589: 100},
         max_tokens=1,
         )
     async def invoke_concurrently():
-        tasks = [work(text) for text in prompts]
+        tasks = [response(prompt) for prompt in prompts]
         return await asyncio.gather(*tasks)
 
     with solara.Head():
@@ -112,6 +108,7 @@ def Page():
             solara.InputText("Enter some text and press ENTER", value=input_text)
             phrase = input_text.value
             splitted_phrase = phrase.split(" ")
+            # Original prompt and for each word consider the original prompt except that word
             prompts = [" ".join(splitted_phrase)] + [" ".join([v for i, v in enumerate(splitted_phrase) if i != index_to_remove]) for index_to_remove in range(len(splitted_phrase))]
             client = AsyncOpenAI()
             all_persons = asyncio.run(invoke_concurrently())
@@ -129,13 +126,13 @@ def Page():
             with solara.ToggleButtonsSingle("bars", on_value=set_option):
                 solara.Button("bars")
                 solara.Button("pie")
-            old_options = get_old_options(positive, negative)
+            old_options = plot_predicted_sentiment(positive, negative)
             solara.FigureEcharts(option=old_options[option])
 
-            hello = []
+        with solara.Card(title="eXplainable GPT-4", subtitle="Leave-one-feature-out importance"):
+            scores = []
             for i in range(1, len(all_persons)):
                 dictX = my_function(all_persons[i])
-                hello.append(dict0[0] - dictX[0])
-            options = get_options(splitted_phrase, hello)
-        with solara.Card(title="eXplainable GPT-4", subtitle="Leave-one-feature-out importance"):
-            solara.FigureEcharts(option=options["bars"])
+                scores.append(dict0[0] - dictX[0])
+            option = plot_scores_by_words(splitted_phrase, scores)
+            solara.FigureEcharts(option=option)
